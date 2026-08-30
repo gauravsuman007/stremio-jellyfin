@@ -315,6 +315,147 @@ const BUNDLE_JS = String.raw`
   // Runs regardless of player type: being stuck applies to a plain browser
   // tab opened through the multiplexer just as much as to a WebView shell.
 
+  /*
+    "Open in external player", for Stremio's own web player.
+    --------------------------------------------------------
+
+    Installed BEFORE the native-player gate below, deliberately. That gate
+    asks whether the client's DEFAULT player is native, and this button
+    exists for exactly the case where it is not: the web player is playing,
+    and this one video should go somewhere else. Gating it the same way would
+    have hidden it precisely when it is wanted.
+
+    Uses the same URL -> item id -> initPlayer path as the automatic hand-off
+    (see streams.js): ExternalPlayer.initPlayer sets "video/*" on the intent,
+    which is what makes Android offer the media-player chooser. The bridge
+    that takes a bare URL, NativeInterface.openUrl, has no MIME type and so
+    hands the link to a browser instead.
+  */
+  function installExternalButton() {
+    var bridge = null;
+
+    try { bridge = window.ExternalPlayer && window.ExternalPlayer.initPlayer ? window.ExternalPlayer : null; }
+    catch (e) {}
+
+    // isEnabled() is deliberately NOT consulted: initPlayer works whatever
+    // the default player is, and this is an explicit per-video choice.
+    if (!bridge) return;
+
+    var BUTTON_ID = "stremio-external-player";
+    var button = document.createElement("button");
+
+    button.id = BUTTON_ID;
+    button.type = "button";
+    button.setAttribute("aria-label", "Open in an external player");
+    button.setAttribute("title", "Open in an external player");
+    button.tabIndex = 0;
+    // A screen with an arrow leaving it -- the same shape the rest of this
+    // project uses for a hand-off. Inline SVG because no icon font can be
+    // loaded into someone else's document.
+    button.innerHTML =
+      '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+      '<path d="M10 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"></path>' +
+      '<polyline points="15 3 21 3 21 9"></polyline>' +
+      '<line x1="11" y1="13" x2="21" y2="3"></line>' +
+      "</svg>";
+
+    // Left, because the multiplexer's launcher sits top-right.
+    button.style.cssText = [
+      "position:fixed",
+      "left:.75rem",
+      "top:.75rem",
+      "z-index:2147483000",
+      "width:40px",
+      "height:40px",
+      "padding:0",
+      "border-radius:999px",
+      "border:1px solid rgba(255,255,255,.25)",
+      "background:rgba(16,16,20,.7)",
+      "color:#fff",
+      "display:none",
+      "align-items:center",
+      "justify-content:center",
+      "opacity:.75",
+      "cursor:pointer",
+      "-webkit-tap-highlight-color:transparent"
+    ].join(";");
+
+    /** The URL currently on screen, or null when there is nothing to send. */
+    function playableUrl() {
+      try {
+        var videos = document.querySelectorAll("video");
+
+        for (var i = 0; i < videos.length; i++) {
+          var url = videos[i].currentSrc || videos[i].src;
+
+          // blob: and data: are MediaSource playback -- there is no address
+          // another app could fetch, so there is nothing to hand over and the
+          // button stays hidden rather than offering a dead control.
+          if (url && url.indexOf("http") === 0) return url;
+        }
+      } catch (e) {}
+
+      return null;
+    }
+
+    button.addEventListener("click", function () {
+      var url = playableUrl();
+
+      if (!url) return;
+
+      button.disabled = true;
+
+      // Pause first: whatever happens next, two players pulling the same
+      // stream is the one outcome to avoid.
+      try {
+        var videos = document.querySelectorAll("video");
+        for (var i = 0; i < videos.length; i++) videos[i].pause();
+      } catch (e) {}
+
+      fetch("/jellyfin/register-stream", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: url, title: document.title || "Video" })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.itemId) { log("could not register stream", url); return; }
+
+          ensureCredentials(function (ok) {
+            if (!ok) { log("external hand-off aborted: no credentials"); return; }
+
+            try {
+              bridge.initPlayer(JSON.stringify({ ids: [d.itemId], startIndex: 0, startPositionTicks: 0 }));
+            } catch (e) { log("initPlayer failed", e); }
+          });
+        })
+        .catch(function (e) { log("register-stream failed", e); })
+        .then(function () { button.disabled = false; });
+    });
+
+    function mount() {
+      if (document.body && !document.getElementById(BUTTON_ID)) document.body.appendChild(button);
+    }
+
+    // Polled rather than driven by media events: Stremio replaces its <video>
+    // element on every stream change, so a listener bound to one element goes
+    // stale. The same reasoning as the launcher's own visibility check.
+    function update() {
+      mount();
+      button.style.display = playableUrl() ? "flex" : "none";
+    }
+
+    if (document.body) update();
+    else document.addEventListener("DOMContentLoaded", update);
+
+    setInterval(update, 1500);
+  }
+
+  installExternalButton();
+
   if (!nativeAvailable()) return;
 
   document.documentElement.setAttribute("data-stremio-native-player", "1");
