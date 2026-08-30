@@ -100,6 +100,24 @@ const server = app.listen(0, async () => {
     check("the minted token is claimed with the multiplexer", bundle.includes("/__mux/claim-token"));
 
     /*
+        A per-process token logged every client out on every restart, which is
+        what "the login is not persistent" turned out to be. Derived from the
+        password instead, so it survives a restart and still changes when the
+        password does.
+    */
+    {
+        const derive = (pw) =>
+            require("node:crypto")
+                .createHmac("sha256", "stremio-jellyfin access token v1")
+                .update(`${pw}\u0000${jf.__serverNameForTest ?? "Stremio"}`)
+                .digest("hex")
+                .slice(0, 32);
+
+        check("the access token is stable, not per-process", derive("a") === derive("a"));
+        check("and still changes with the password", derive("a") !== derive("b"));
+    }
+
+    /*
         Behind the multiplexer every app shares one origin, so
         jellyfin_credentials is shared too. Writing a fresh one-element
         Servers array here deleted the real Jellyfin's saved login, which

@@ -29,10 +29,25 @@ const { BUNDLE_PATH, BUNDLE_JS } = require("./bundle.js");
  * One long-lived token rather than a session store.
  *
  * The access token is only ever compared against itself; there is no second
- * user and no revocation story, so anything more would be ceremony. Rotates
- * on restart, which is also the only way to change the password.
+ * user and no revocation story, so anything more would be ceremony.
+ *
+ * DERIVED, not random. It used to be `randomBytes(16)` at module load, which
+ * meant it changed on every restart -- and a client that authenticated once
+ * and kept its token, which is what these clients do, started getting 401s
+ * the moment the container was recreated. Reported as "the login is not
+ * persistent", and the multiplexer had the identical bug.
+ *
+ * An HMAC of the configured password gives a token that is stable across
+ * restarts without needing anywhere to write it -- this container has no
+ * volume -- and that still changes when the password does, which was the one
+ * useful property of the random version. The password is never recoverable
+ * from it.
  */
-const ACCESS_TOKEN = require("node:crypto").randomBytes(16).toString("hex");
+const ACCESS_TOKEN = require("node:crypto")
+    .createHmac("sha256", "stremio-jellyfin access token v1")
+    .update(`${config.password()}\u0000${config.serverName()}`)
+    .digest("hex")
+    .slice(0, 32);
 
 function publicInfo() {
     return {
