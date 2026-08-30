@@ -34,4 +34,22 @@ function password() {
     return process.env.JELLYFIN_PASSWORD || "";
 }
 
-module.exports = { enabled, serverName, username, password };
+
+/**
+ * The streaming server a browser should use, pushed to every device.
+ *
+ * Stremio keeps this per-device and defaults it to http://127.0.0.1:11470,
+ * which inside a phone or TV WebView means the CLIENT, not the host -- so it
+ * silently finds nothing and no stream ever plays. It is also NOT part of what
+ * a Stremio account syncs, so setting it on one device does nothing for the
+ * next one.
+ *
+ * When this is set, the bundle applies it once per device via the
+ * `?streamingServerUrl=` parameter that upstream's SearchParamsHandler already
+ * understands, which removes the manual settings step entirely.
+ */
+function streamingServerUrl() {
+    return process.env.STREMIO_STREAMING_SERVER_URL || "";
+}
+
+module.exports = { enabled, serverName, username, password, streamingServerUrl };

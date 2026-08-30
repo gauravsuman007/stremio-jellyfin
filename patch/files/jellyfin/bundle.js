@@ -244,6 +244,55 @@ const BUNDLE_JS = String.raw`
       });
   }
 
+  /*
+    Point this device at the configured streaming server, once.
+
+    Stremio keeps the streaming server URL PER DEVICE and defaults it to
+    http://127.0.0.1:11470 -- which inside a phone or TV WebView means the
+    client device, not the host, so it finds nothing and no stream plays. It
+    is also not part of what a Stremio account syncs, so setting it on one
+    device does nothing for the next.
+
+    Upstream's SearchParamsHandler already applies a streamingServerUrl query
+    parameter to
+    the profile and persists it, so this only has to put the parameter there
+    once and reload. Guarded by a localStorage marker keyed on the VALUE, so
+    it cannot loop, and so changing the configured URL re-applies rather than
+    being ignored forever.
+  */
+  function applyStreamingServer() {
+    var configured = (window.__STREMIO_JELLYFIN__ || {}).streamingServerUrl;
+
+    if (!configured) return;
+
+    var marker = "stremio-jellyfin:server-url";
+
+    try {
+      if (window.localStorage.getItem(marker) === configured) return;
+    } catch (e) {
+      // Storage unavailable (private mode, or a locked-down WebView). Without
+      // a marker this would reload forever, so do nothing at all rather than
+      // risk that -- the manual settings route still works.
+      return;
+    }
+
+    if (location.search.indexOf("streamingServerUrl=") !== -1) {
+      // The parameter is already on the URL: upstream's handler is applying
+      // it on this very load. Record it and let that finish.
+      try { window.localStorage.setItem(marker, configured); } catch (e) {}
+      return;
+    }
+
+    try { window.localStorage.setItem(marker, configured); } catch (e) {}
+
+    var separator = location.search ? "&" : "?";
+    log("pointing this device at streaming server", configured);
+    location.replace(location.pathname + location.search + separator +
+                     "streamingServerUrl=" + encodeURIComponent(configured) + location.hash);
+  }
+
+  applyStreamingServer();
+
   // Runs regardless of player type: being stuck applies to a plain browser
   // tab opened through the multiplexer just as much as to a WebView shell.
   offerLauncherButton();

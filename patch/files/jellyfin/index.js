@@ -136,7 +136,19 @@ function build() {
 
     // --- the bundle, which is also the connection trigger -------------------
     router.get(BUNDLE_PATH, (_req, res) => {
-        res.type("application/javascript").send(BUNDLE_JS);
+        /*
+            A tiny config prelude ahead of the bundle.
+
+            The bundle is a static string, and the streaming server URL is
+            deployment-specific, so it is handed over here rather than baked
+            in. JSON.stringify, not string concatenation, so a value with a
+            quote in it cannot break out of the literal.
+        */
+        const settings = { streamingServerUrl: config.streamingServerUrl() };
+
+        res
+            .type("application/javascript")
+            .send(`window.__STREMIO_JELLYFIN__ = ${JSON.stringify(settings)};\n${BUNDLE_JS}`);
     });
 
     // --- handshake ----------------------------------------------------------

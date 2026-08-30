@@ -87,6 +87,14 @@ const server = app.listen(0, async () => {
     check("button requires a JSON content-type", bundle.includes('indexOf("json")'));
     check("button navigates to the picker", bundle.includes("stremio-jellyfin-apps"));
 
+    // 14. The streaming-server URL is pushed to devices, and safely.
+    [s, r] = await get(jf.BUNDLE_PATH);
+    const b2 = await r.text();
+    check("bundle carries a config prelude", b2.includes("window.__STREMIO_JELLYFIN__"));
+    check("config is JSON-encoded, not concatenated", b2.includes('"streamingServerUrl"'));
+    check("auto-apply is guarded by a stored marker", b2.includes("stremio-jellyfin:server-url"));
+    check("auto-apply uses upstream's own query parameter", b2.includes("streamingServerUrl="));
+
     console.log(`\n${pass} passed, ${fail} failed`);
     server.close();
     process.exit(fail ? 1 : 0);

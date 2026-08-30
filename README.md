@@ -40,8 +40,49 @@ docker run -p 8080:8080 \
 | `JELLYFIN_USERNAME` | `stremio` | Username shown on the client's login screen. |
 | `JELLYFIN_SERVER_NAME` | `Stremio` | Name shown in the client's server list. |
 | `JELLYFIN_ENABLED` | `true` | Set `false` to serve plain Stremio Web with no Jellyfin surface. |
+| `STREMIO_STREAMING_SERVER_URL` | *(none)* | Points every device at this streaming server automatically. See below. |
 
 Point the Jellyfin client at `http://<host>:8080` and sign in.
+
+## What syncs between devices, and what does not
+
+Stremio Web keeps its state **in the browser**, not on the server. This
+container serves static files and holds no user state at all, so two devices
+opening it — even through the same address — start from separate storage.
+
+| | Syncs between devices? |
+| --- | --- |
+| Addons, library | **Only with a Stremio account.** On window focus the app runs `PullAddonsFromAPI`, `PullUserFromAPI` and `SyncLibraryWithAPI` against Stremio's own service. Signed out there is no profile to sync, so each device keeps its own. |
+| Streaming server URL | **Never.** It is per-device by design and is not part of the account-synced set — reasonable upstream, since devices may reach the server at different addresses. |
+
+So **sign into a Stremio account** to share addons and library across devices.
+That is the app's own mechanism and not something worth patching around.
+
+The streaming server URL is worth handling here, because in this deployment
+every device really does use the same address.
+
+### Pointing every device at the streaming server
+
+Stremio defaults this to `http://127.0.0.1:11470`, which inside a phone or TV
+WebView means **the client device**, not the host — so it silently finds
+nothing and no stream plays.
+
+Set `STREMIO_STREAMING_SERVER_URL` and each device is pointed at it on first
+load, via the `streamingServerUrl` query parameter upstream's
+`SearchParamsHandler` already understands and persists:
+
+```yaml
+environment:
+    STREMIO_STREAMING_SERVER_URL: "http://192.168.2.100:11470"
+```
+
+Applied once per device and guarded by a stored marker keyed on the **value**,
+so it cannot loop, and changing the URL re-applies rather than being ignored.
+If storage is unavailable (private mode, a locked-down WebView) it does nothing
+at all rather than risk a reload loop — the settings screen still works.
+
+Leave it unset and nothing is injected; the URL must then be set by hand on
+every device.
 
 ## Playback
 
