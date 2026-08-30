@@ -104,6 +104,36 @@ const BUNDLE_JS = String.raw`
    * and it broke ExoPlayer and the external player identically, because both
    * resolve the media source through the same ApiClient before they diverge.
    */
+
+  /*
+      Upsert OUR server entry, keeping everyone else's.
+
+      'jellyfin_credentials' is a per-ORIGIN store, and behind the
+      multiplexer every app -- a real Jellyfin server proxied through it
+      included -- shares one origin. Replacing the array wholesale was
+      therefore deleting Jellyfin's saved login every time any other page at
+      this origin loaded. That is exactly why signing in to Jellyfin, going
+      back to the picker and opening it again asked for a password: the
+      picker page itself did the deleting, on the way in.
+
+      Ours goes FIRST, so anything reading Servers[0] still reads ours and
+      not a neighbour's.
+  */
+  function writeCredentials(entry) {
+    var others = [];
+
+    try {
+      var existing = JSON.parse(window.localStorage.getItem("jellyfin_credentials"));
+      if (existing && existing.Servers && existing.Servers.length) {
+        others = existing.Servers.filter(function (s) { return s && s.Id !== entry.Id; });
+      }
+    } catch (e) {}
+
+    try {
+      window.localStorage.setItem("jellyfin_credentials", JSON.stringify({ Servers: [entry].concat(others) }));
+    } catch (e) { log("could not write credentials", e); }
+  }
+
   function ensureCredentials(done) {
     if (imported) { done(true); return; }
 
@@ -119,9 +149,7 @@ const BUNDLE_JS = String.raw`
           return;
         }
 
-        window.localStorage.setItem("jellyfin_credentials", JSON.stringify({
-          Servers: [{ Id: d.ServerId, UserId: d.UserId, AccessToken: d.AccessToken }]
-        }));
+        writeCredentials({ Id: d.ServerId, UserId: d.UserId, AccessToken: d.AccessToken });
 
         claimTokenWithHost(d.AccessToken);
         importSession(done);

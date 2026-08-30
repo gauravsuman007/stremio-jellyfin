@@ -99,6 +99,18 @@ const server = app.listen(0, async () => {
     );
     check("the minted token is claimed with the multiplexer", bundle.includes("/__mux/claim-token"));
 
+    /*
+        Behind the multiplexer every app shares one origin, so
+        jellyfin_credentials is shared too. Writing a fresh one-element
+        Servers array here deleted the real Jellyfin's saved login, which
+        showed up as Jellyfin asking for a password again after a trip to
+        the picker. Ours must be upserted, never substituted.
+    */
+    check(
+        "other servers' credentials survive our write",
+        bundle.includes("writeCredentials(") && !bundle.includes("Servers: [{ Id: d.ServerId")
+    );
+
     // 14. The streaming-server URL is pushed to devices, and safely.
     [s, r] = await get(jf.BUNDLE_PATH);
     const b2 = await r.text();
