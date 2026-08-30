@@ -67,7 +67,20 @@ jobs:
                   # Skip work already done. A daily poll that rebuilt the same
                   # release every morning would republish an identical image
                   # and churn the tag for no reason.
-                  if [ "${{ inputs.force }}" = "true" ]; then
+                  #
+                  # A PUSH is the exception, and getting this wrong is silent.
+                  # This workflow also triggers on changes to patch/**, and the
+                  # whole point of that trigger is to rebuild the CURRENT
+                  # release with the new patch. The published-tag check would
+                  # otherwise skip it every time -- upstream has not moved, so
+                  # the tag exists -- and the change would sit unbuilt while
+                  # the workflow reported success. Observed exactly that way:
+                  # a patch commit went green and the deployed image was
+                  # unchanged.
+                  if [ "${{ github.event_name }}" = "push" ]; then
+                    echo "patch changed; rebuilding ${TAG} regardless of publication"
+                    echo "needed=true" >> "$GITHUB_OUTPUT"
+                  elif [ "${{ inputs.force }}" = "true" ]; then
                     echo "needed=true" >> "$GITHUB_OUTPUT"
                   elif docker manifest inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
                     echo "already published; nothing to do"
