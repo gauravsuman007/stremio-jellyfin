@@ -169,6 +169,85 @@ const BUNDLE_JS = String.raw`
     }
   };
 
+  /*
+    A way back to the multiplexer's app picker.
+    -------------------------------------------
+
+    Without this, a Jellyfin client that entered Stremio through the
+    multiplexer is STUCK: Stremio has no concept of a launcher to return to,
+    the WebView has no address bar, and the OS back gesture does not leave
+    the web content. Reported exactly that way.
+
+    Rendered only when the multiplexer confirms itself via /__mux/ping.
+    Probing /apps instead does not work -- Stremio's SPA fallback answers any
+    unknown path with index.html and a 200, which looks identical to the
+    picker. The JSON check is what makes the probe honest, so this button
+    never appears on a standalone deployment where it would dead-end.
+
+    Deliberately plain DOM and inline styles: Stremio's stylesheets are a
+    build artefact we do not control and whose class names change between
+    releases, so anything relying on them would break on an upgrade.
+  */
+  function mountLauncherButton(picker) {
+    if (document.getElementById("stremio-jellyfin-apps")) return;
+
+    var btn = document.createElement("button");
+    btn.id = "stremio-jellyfin-apps";
+    btn.type = "button";
+    btn.textContent = "\u25C0 Apps";
+    btn.setAttribute("aria-label", "Back to app launcher");
+
+    btn.style.cssText = [
+      "position:fixed",
+      "top:env(safe-area-inset-top,0px)",
+      "left:0",
+      // Above Stremio's own chrome. Its top bar sits in the low hundreds, so
+      // this is clear of it without being absurd.
+      "z-index:2147483000",
+      "margin:8px",
+      "padding:8px 14px",
+      "font:600 13px/1.2 system-ui,-apple-system,sans-serif",
+      "color:#fff",
+      "background:rgba(20,18,32,.86)",
+      "border:1px solid rgba(255,255,255,.22)",
+      "border-radius:999px",
+      "cursor:pointer",
+      // Comfortably tappable on a TV remote or a phone.
+      "min-height:40px",
+      "-webkit-tap-highlight-color:transparent",
+      "backdrop-filter:blur(6px)"
+    ].join(";");
+
+    btn.addEventListener("click", function () {
+      window.location.href = picker || "/apps";
+    });
+
+    document.body.appendChild(btn);
+  }
+
+  function offerLauncherButton() {
+    fetch("/__mux/ping", { credentials: "same-origin" })
+      .then(function (r) {
+        var type = r.headers.get("content-type") || "";
+        if (!r.ok || type.indexOf("json") === -1) return null;
+        return r.json();
+      })
+      .then(function (d) {
+        if (!d || !d.multiplexer) return;
+
+        if (document.body) mountLauncherButton(d.picker);
+        else document.addEventListener("DOMContentLoaded", function () { mountLauncherButton(d.picker); });
+      })
+      .catch(function () {
+        // Not behind the multiplexer, or it is unreachable. Either way there
+        // is nowhere to go back to, so no button.
+      });
+  }
+
+  // Runs regardless of player type: being stuck applies to a plain browser
+  // tab opened through the multiplexer just as much as to a WebView shell.
+  offerLauncherButton();
+
   if (!nativeAvailable()) return;
 
   document.documentElement.setAttribute("data-stremio-native-player", "1");
