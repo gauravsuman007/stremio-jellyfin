@@ -18,7 +18,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const upstream = resolve(process.argv[2] ?? "upstream");
+// Defaults to the CURRENT directory, not a nested "upstream/".
+//
+// CI runs this with `working-directory: upstream` and no argument, so a
+// default of "upstream" resolved to upstream/upstream and failed with
+// "no such checkout" -- which reads like a missing checkout rather than a
+// path bug. riven-frontend-jellyfin's applier uses process.cwd() for the
+// same reason; keeping the two consistent avoids re-learning this.
+const upstream = resolve(process.argv[2] ?? process.cwd());
 
 if (!existsSync(upstream)) {
     console.error(`no such checkout: ${upstream}`);
