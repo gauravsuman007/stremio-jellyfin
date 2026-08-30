@@ -436,8 +436,18 @@ const BUNDLE_JS = String.raw`
         .then(function () { button.disabled = false; });
     });
 
+    /*
+      Re-parented into the fullscreen element when there is one.
+
+      A position:fixed element is still clipped away entirely if it is not
+      inside the subtree being shown fullscreen -- so a button appended to
+      <body> vanishes the moment the player goes fullscreen, which is exactly
+      when it is wanted.
+    */
     function mount() {
-      if (document.body && !document.getElementById(BUTTON_ID)) document.body.appendChild(button);
+      var host = document.fullscreenElement || document.body;
+
+      if (host && button.parentNode !== host) host.appendChild(button);
     }
 
     // Polled rather than driven by media events: Stremio replaces its <video>
