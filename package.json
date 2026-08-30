@@ -1,0 +1,12 @@
+{
+  "name": "stremio-jellyfin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Jellyfin client integration for Stremio Web",
+  "scripts": {
+    "test": "node test/surface.test.js"
+  },
+  "devDependencies": {
+    "express": "^4.21.2"
+  }
+}

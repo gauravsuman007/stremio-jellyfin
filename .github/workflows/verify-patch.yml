@@ -1,0 +1,125 @@
+name: Verify the patch applies
+
+# The patch is anchored to text in upstream's files, so it rots silently when
+# upstream edits them. This proves it still applies -- against the current
+# release AND against the development branch, so a breaking change is visible
+# before it reaches a release rather than at 6am on build day.
+on:
+    push:
+        branches: [main]
+    pull_request:
+    schedule:
+        - cron: "0 5 * * *"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    UPSTREAM: Stremio/stremio-web
+
+jobs:
+    unit:
+        name: Jellyfin surface tests
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: npm install
+            - run: npm test
+
+    apply:
+        name: Apply to ${{ matrix.ref }}
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                ref: [release, development]
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  path: patchsrc
+
+            - name: Resolve the ref
+              id: pick
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  if [ "${{ matrix.ref }}" = "release" ]; then
+                    REF=$(gh api "repos/${UPSTREAM}/releases" --jq 'map(select(.draft == false)) | .[0].tag_name')
+                  else
+                    REF=development
+                  fi
+                  echo "ref=$REF" >> "$GITHUB_OUTPUT"
+                  echo "resolved to $REF"
+
+            - uses: actions/checkout@v4
+              with:
+                  repository: ${{ env.UPSTREAM }}
+                  ref: ${{ steps.pick.outputs.ref }}
+                  path: upstream
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Apply
+              working-directory: upstream
+              run: node ../patchsrc/patch/apply.mjs
+
+            - name: The patch must be idempotent
+              working-directory: upstream
+              run: |
+                  set -euo pipefail
+                  node ../patchsrc/patch/apply.mjs | tee second.log
+                  # Re-applying must change nothing. If any file reports as
+                  # freshly patched on the second pass, an edit is not
+                  # detecting its own previous application and will duplicate
+                  # itself on every run.
+                  if grep -q -- "-- " second.log; then
+                    echo "::error::apply.mjs is not idempotent"
+                    exit 1
+                  fi
+                  rm second.log
+
+            - name: Boot the patched server and complete the handshake
+              working-directory: upstream
+              run: |
+                  set -euo pipefail
+
+                  # A real index.html rather than the built one: this proves
+                  # the SERVER wiring, and building Stremio's bundle here
+                  # would add minutes to prove nothing extra.
+                  mkdir -p build
+                  printf '<!doctype html><html><head><title>Stremio</title></head><body></body></html>' > build/index.html
+
+                  npm install express@4 --no-save --silent
+                  sed -i 's/const HTTP_PORT = 8080;/const HTTP_PORT = 8231;/' http_server.js
+
+                  JELLYFIN_PASSWORD=ci-secret node http_server.js &
+                  for _ in $(seq 1 30); do
+                    curl -sf -o /dev/null http://127.0.0.1:8231/ && break
+                    sleep 1
+                  done
+
+                  # The handshake the client actually performs, in order.
+                  curl -sf http://127.0.0.1:8231/System/Info/Public | grep -q ServerName
+
+                  # Lowercase too: clients probe /system/info/public, and
+                  # Jellyfin's own ASP.NET server answers it.
+                  curl -sf http://127.0.0.1:8231/system/info/public > /dev/null
+
+                  # THE CRITICAL ONE. No reference to the bundle path in the
+                  # HTML means the client never registers as connected: a
+                  # spinner, then a 10s timeout, no error anywhere.
+                  curl -sf http://127.0.0.1:8231/ | grep -q "main.stremio.bundle.js"
+                  curl -sf http://127.0.0.1:8231/web/main.stremio.bundle.js | grep -q StremioNative
+
+                  curl -sf -X POST http://127.0.0.1:8231/Users/AuthenticateByName \
+                    -H 'content-type: application/json' \
+                    -d '{"Username":"stremio","Pw":"ci-secret"}' | grep -q AccessToken
+
+                  echo "handshake OK"
