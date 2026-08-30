@@ -87,6 +87,21 @@ const server = app.listen(0, async () => {
     check("button requires a JSON content-type", bundle.includes('indexOf("json")'));
     check("button navigates to the picker", bundle.includes("stremio-jellyfin-apps"));
 
+    /*
+        15. The native session must be seeded with OUR token, never with
+        whatever is already in localStorage. Behind the multiplexer that is
+        the multiplexer's own random token, and importing it made every
+        native call 401 -- which broke ExoPlayer and the external player
+        identically. Asserted on the bundle text because the failure is
+        invisible from the server side.
+    */
+    check(
+        "credentials are always exchanged, not read from localStorage first",
+        bundle.indexOf("/jellyfin/session-token") <
+            bundle.indexOf('log("no session token; falling back to stored credentials")')
+    );
+    check("the minted token is claimed with the multiplexer", bundle.includes("/__mux/claim-token"));
+
     // 14. The streaming-server URL is pushed to devices, and safely.
     [s, r] = await get(jf.BUNDLE_PATH);
     const b2 = await r.text();

@@ -77,22 +77,76 @@ const BUNDLE_JS = String.raw`
       .catch(function (e) { log("capabilities/full failed", e); done(false); });
   }
 
-  function ensureCredentials(done) {
+  function stored() {
     try {
       var c = JSON.parse(window.localStorage.getItem("jellyfin_credentials"));
-      if (c && c.Servers && c.Servers[0] && c.Servers[0].AccessToken) { importSession(done); return; }
+      if (c && c.Servers && c.Servers[0] && c.Servers[0].AccessToken) return c.Servers[0];
     } catch (e) {}
+    return null;
+  }
+
+  /**
+   * Fetch OUR token and hand it to the native session. Unconditionally.
+   *
+   * A pre-existing jellyfin_credentials must never be preferred. Behind the
+   * multiplexer -- which is how the Jellyfin clients reach this -- it is
+   * already populated at this origin, with the WRONG token: the multiplexer
+   * answers /Users/AuthenticateByName itself with a random per-boot
+   * ACCESS_TOKEN of its own and its picker page seeds that into localStorage.
+   *
+   * Trusting it meant importing the multiplexer's token into the native
+   * session, so every native call carried a token this server has never
+   * heard of. Confirmed on-device in the sibling riven-tpdb bridge, which had
+   * exactly this bug:
+   *
+   *   E/MediaSourceResolver: Invalid HTTP status in response: 401
+   *
+   * and it broke ExoPlayer and the external player identically, because both
+   * resolve the media source through the same ApiClient before they diverge.
+   */
+  function ensureCredentials(done) {
+    if (imported) { done(true); return; }
 
     fetch("/jellyfin/session-token", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        if (!d) { log("no session token available"); done(false); return; }
+        if (!d) {
+          // Only now is whatever is already stored worth a try: it may be a
+          // real token from a shell that seeded one.
+          if (stored()) { log("no session token; falling back to stored credentials"); importSession(done); return; }
+          log("no session token available");
+          done(false);
+          return;
+        }
+
         window.localStorage.setItem("jellyfin_credentials", JSON.stringify({
           Servers: [{ Id: d.ServerId, UserId: d.UserId, AccessToken: d.AccessToken }]
         }));
+
+        claimTokenWithHost(d.AccessToken);
         importSession(done);
       })
       .catch(function (e) { log("session-token fetch failed", e); done(false); });
+  }
+
+  /**
+   * Tell the multiplexer, if we are behind one, that this token is ours.
+   *
+   * The native player is a separate HTTP stack from the WebView: its requests
+   * carry no device cookie, so the access token is the only thing left to
+   * route them by, and the multiplexer only learns tokens by watching
+   * AuthenticateByName responses -- which this token never produces.
+   *
+   * Best-effort: a plain browser just 404s and nothing depends on it.
+   */
+  function claimTokenWithHost(token) {
+    try {
+      fetch("/__mux/claim-token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: token })
+      }).catch(function () {});
+    } catch (e) {}
   }
 
   function handOff(itemId) {
