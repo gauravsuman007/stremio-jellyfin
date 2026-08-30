@@ -154,6 +154,34 @@ function build() {
     // --- handshake ----------------------------------------------------------
     router.get("/System/Info/Public", (_req, res) => res.json(publicInfo()));
 
+    /*
+        Step two of the LG webOS client's connection handshake.
+
+        From jellyfin-webos `frontend/js/index.js`: the success handler for
+        /System/Info/Public immediately calls getManifest() for
+        /web/manifest.json, and a 404 there lands in handleFailure -- "Got
+        HTTP error 404 from server, are you connecting to a Jellyfin Server?"
+        -- with no further request ever made. The Android client never asks
+        for it, which is why only webOS failed.
+
+        `start_url` is resolved as `baseurl + "/web/" + start_url` unless it
+        already contains "/web", so this points the client at /web/index.html.
+    */
+    router.get("/web/manifest.json", (_req, res) =>
+        res.json({
+            name: config.serverName(),
+            short_name: config.serverName(),
+            start_url: "index.html",
+            display: "standalone",
+            background_color: "#0b0a14",
+            theme_color: "#0b0a14",
+            icons: []
+        })
+    );
+
+    // Where that manifest points. Stremio itself lives at the root.
+    router.get("/web/index.html", (_req, res) => res.redirect(302, "/"));
+
     router.get("/System/Info", (req, res) => {
         if (!authorised(req)) return res.sendStatus(401);
         res.json({ ...publicInfo(), HasUpdateAvailable: false, CanSelfRestart: false });

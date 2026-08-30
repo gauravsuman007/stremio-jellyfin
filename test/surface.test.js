@@ -76,16 +76,13 @@ const server = app.listen(0, async () => {
     [s, r] = await get(`/Items/${reg.itemId}`, H);
     check("Items/{id} names the video", s === 200 && (await r.json()).Name === "Test Movie");
 
-    // 13. The launcher button must be gated on a JSON probe, not on /apps.
-    //     Stremio's SPA fallback answers any unknown path with index.html and
-    //     a 200, so a naive probe would render a dead-end button on a
-    //     standalone deployment.
+    // 13. The launcher button belongs to the multiplexer now, not to this
+    //     bundle. Two buttons is worse than none, and the injected one also
+    //     appears on error pages, which this one never could.
     [s, r] = await get(jf.BUNDLE_PATH);
     const bundle = await r.text();
-    check("bundle probes /__mux/ping", bundle.includes("/__mux/ping"));
-    check("button requires multiplexer:true", bundle.includes("d.multiplexer"));
-    check("button requires a JSON content-type", bundle.includes('indexOf("json")'));
-    check("button navigates to the picker", bundle.includes("stremio-jellyfin-apps"));
+    check("no launcher button of our own", !bundle.includes("stremio-jellyfin-apps"));
+    check("no /__mux/ping probe left behind", !bundle.includes("offerLauncherButton()"));
 
     /*
         15. The native session must be seeded with OUR token, never with
