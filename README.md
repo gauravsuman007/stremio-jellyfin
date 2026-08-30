@@ -115,6 +115,26 @@ file and never goes through `res.send`, so the injection silently never fires.
 Found by running the patched server and finding zero references to the bundle
 in the served HTML. Hence the explicit handler ahead of the static middleware.
 
+## Upstream needs a real git checkout, not a tarball
+
+`webpack.config.js` shells out to `git rev-parse HEAD` at build time, so a
+source tarball fails the build outright:
+
+```
+[webpack-cli] Failed to load '/var/www/stremio-web/webpack.config.js' config
+  Command failed: git rev-parse HEAD
+```
+
+Upstream's own Dockerfile installs `git` for this reason. CI is unaffected
+because `actions/checkout` produces a real repository, but building by hand
+means `git clone`, not `curl | tar`. Found exactly that way.
+
+```bash
+git clone --depth 1 --branch <tag> https://github.com/Stremio/stremio-web.git upstream
+node patch/apply.mjs upstream
+docker build -t stremio-jellyfin upstream
+```
+
 ## Tests
 
 ```bash
