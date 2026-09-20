@@ -1,5 +1,16 @@
 # stremio-jellyfin
 
+> **Retired in this household, 2026-09-20.** Stremio is reached through
+> `stremio-tv`, which is a separate client of the same streaming server and
+> of the same addons — it never talked to this container at all, and nothing
+> was signed into a Stremio account here, so no addons or library lived in
+> it. The `stremio-web` service and the multiplexer's `stremio` tile are
+> gone; `stremio-server` stays, because `stremio-tv` plays nothing without
+> it. The repo is kept because the Jellyfin-handshake work is the only
+> record of how a WebView client can be made to run an arbitrary web app,
+> and because bringing it back is one service block.
+
+
 Stremio Web, served so that a **Jellyfin client can connect to it and run it as
 an app** — plus playback handed off to that client's native video player.
 
